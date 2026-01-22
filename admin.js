@@ -5,20 +5,46 @@ import { Schedule } from "./scheduler.js";
 import { showToast } from "./ui.js";
 
 // Configuration data
-const NATIONAL_HOLIDAYS = {
-  1: "1",
-  2: "",
-  3: "",
-  4: "",
-  5: "",
-  6: "19",
-  7: "4,24",
-  8: "",
-  9: "",
-  10: "",
-  11: "",
-  12: "24,25,31",
-};
+// Compute national holidays for a given year and return an object mapping
+// month (1-12) -> comma-separated day numbers (same format as before).
+function computeNationalHolidays(year) {
+  // Helpers to compute nth weekday (weekday: 0=Sun..6=Sat)
+  function getNthWeekdayOfMonth(y, m, weekday, n) {
+    // m is 1-based month
+    const first = new Date(y, m - 1, 1);
+    const firstWeekday = first.getDay();
+    let day = 1 + ((7 + weekday - firstWeekday) % 7) + (n - 1) * 7;
+    return day;
+  }
+
+  function getLastWeekdayOfMonth(y, m, weekday) {
+    const last = new Date(y, m, 0); // last day of month
+    const lastWeekday = last.getDay();
+    let day = last.getDate() - ((7 + lastWeekday - weekday) % 7);
+    return day;
+  }
+
+  const janMLK = getNthWeekdayOfMonth(year, 1, 1, 3); // 3rd Monday
+  const febPres = getNthWeekdayOfMonth(year, 2, 1, 3); // 3rd Monday
+  const mayMemorial = getLastWeekdayOfMonth(year, 5, 1); // last Monday
+  const sepLabor = getNthWeekdayOfMonth(year, 9, 1, 1); // first Monday
+  const novThanks = getNthWeekdayOfMonth(year, 11, 4, 4); // 4th Thursday (weekday 4)
+
+  return {
+    1: `1,${janMLK}`,
+    2: `${febPres}`,
+    3: "",
+    4: "",
+    5: `${mayMemorial}`,
+    6: "19",
+    7: "4,24",
+    8: "",
+    9: `${sepLabor}`,
+    10: "",
+    11: `${novThanks}`,
+    12: "24,25,31",
+  };
+}
 
 const SEASONAL_SHIFT_INFO = {
   summer: {
@@ -483,7 +509,9 @@ window.deleteMentor = async function () {
 // Schedule Generation Functions
 window.updateHolidays = function () {
   const month = parseInt(document.getElementById("schedule-month").value);
-  const holidays = NATIONAL_HOLIDAYS[month] || "";
+  const year = parseInt(document.getElementById("schedule-year").value) || new Date().getFullYear();
+  const holidaysMap = computeNationalHolidays(year);
+  const holidays = holidaysMap[month] || "";
   document.getElementById("holidays").value = holidays;
 };
 
