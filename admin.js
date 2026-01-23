@@ -1135,9 +1135,8 @@ async function updateScheduleMentor(day, shift, newName) {
     updateDay(pay2Day);
   }
   
-  // Save and update UI
-  await saveCurrentSchedule();
-  showToast("Schedule updated");
+  // Update UI (don't auto-save - user must click Save Schedule button)
+  showToast("Schedule updated (unsaved)");
   updateHoursSummary();
 }
 
