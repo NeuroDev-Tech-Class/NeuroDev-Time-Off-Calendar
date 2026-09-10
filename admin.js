@@ -12,6 +12,7 @@ import {
   expandWeekdaysToDates,
   parseHolidayDates,
   weeksInMonth,
+  planAutoFill,
 } from "./dates.js";
 
 // Compute national holidays for a given year and return an object mapping
@@ -81,10 +82,12 @@ const SEASONAL_SHIFT_INFO = {
 
 let mentorInfoData = {};
 let timeOffAll = {}; // Month-keyed: { "2026-01": { "5": ["Sofia", "", ""] } }
+let autoFilledAll = {}; // Same shape, but only the names auto-fill placed
 let currentSchedule = null;
 let scheduleDirty = false;
 let calendarYear = 2026;
 let calendarMonth = 0; // 0-indexed
+let slotsAvailable = 3;
 
 function calendarMonthKey() {
   return monthKey(calendarYear, calendarMonth + 1);
@@ -142,14 +145,15 @@ async function loadData() {
     const configDoc = await getDoc(doc(db, "calendarConfig", CAMPUS_ID));
     if (configDoc.exists()) {
       const config = configDoc.data();
-      document.getElementById("slots-available").value = config?.slotsAvailable || 3;
+      slotsAvailable = config?.slotsAvailable || 3;
       calendarMonth = config?.targetMonth !== undefined ? config.targetMonth : 0;
       calendarYear = config?.targetYear || 2026;
     } else {
-      document.getElementById("slots-available").value = 3;
+      slotsAvailable = 3;
       calendarMonth = 0;
       calendarYear = 2026;
     }
+    document.getElementById("slots-available").value = slotsAvailable;
 
     document.getElementById("calendar-month").value = calendarMonth;
     document.getElementById("calendar-year").value = calendarYear;
@@ -167,10 +171,11 @@ async function loadData() {
     const timeOffDoc = await getDoc(doc(db, "timeOff", CAMPUS_ID));
     if (timeOffDoc.exists()) {
       timeOffAll = timeOffDoc.data().mentors || {};
+      autoFilledAll = timeOffDoc.data().autoFilled || {};
       // One-time migration: legacy docs were keyed by bare day-of-month
       if (!isMonthKeyed(timeOffAll)) {
         timeOffAll = migrateFlatTimeOff(timeOffAll, calendarMonthKey());
-        await setDoc(doc(db, "timeOff", CAMPUS_ID), { mentors: timeOffAll });
+        await saveTimeOffDoc();
         showToast("Time-off data migrated to month-based storage");
       }
     }
@@ -304,6 +309,27 @@ function populateMentorSelect() {
   }
 }
 
+// Both fields go in every write: setDoc replaces the whole document
+async function saveTimeOffDoc() {
+  await setDoc(doc(db, "timeOff", CAMPUS_ID), {
+    mentors: timeOffAll,
+    autoFilled: autoFilledAll,
+  });
+}
+
+function getMentorPrefilledDates(mentorName, key) {
+  const monthData = getMonthSlice(autoFilledAll, key);
+  const dates = [];
+
+  for (const [day, names] of Object.entries(monthData)) {
+    if (Array.isArray(names) && names.includes(mentorName)) {
+      dates.push(parseInt(day));
+    }
+  }
+
+  return dates;
+}
+
 function getMentorRequestedDates(mentorName, key) {
   const monthData = getMonthSlice(timeOffAll, key);
   const dates = [];
@@ -327,10 +353,15 @@ function updateRequestedDatesDisplay(mentorName) {
   }
 
   const dates = getMentorRequestedDates(mentorName, calendarMonthKey());
-  display.textContent =
-    dates.length > 0
-      ? `${label}: ${dates.join(", ")}`
-      : `No dates requested for ${label}`;
+  if (dates.length === 0) {
+    display.textContent = `No dates requested for ${label}`;
+    return;
+  }
+
+  const prefilled = getMentorPrefilledDates(mentorName, calendarMonthKey());
+  display.textContent = `${label}: ${dates
+    .map((d) => (prefilled.includes(d) ? `${d} (prefilled)` : `${d}`))
+    .join(", ")}`;
 }
 
 function updateRecurringDisplay() {
@@ -365,6 +396,7 @@ window.loadMentorInfo = function () {
     document.getElementById("preferred-weekday").value = "";
     document.getElementById("show-on-calendar").checked = true;
     document.getElementById("include-in-scheduling").checked = true;
+    document.getElementById("auto-fill-calendar").checked = false;
     updateRequestedDatesDisplay(null);
 
     document
@@ -388,6 +420,8 @@ window.loadMentorInfo = function () {
       mentor.show_on_calendar !== undefined ? mentor.show_on_calendar : true;
     document.getElementById("include-in-scheduling").checked =
       mentor.include_in_scheduling !== false;
+    document.getElementById("auto-fill-calendar").checked =
+      mentor.auto_fill_calendar === true;
 
     document.querySelectorAll("#weekdays-unavailable input").forEach((cb) => {
       cb.checked = Boolean(mentor.weekdays && mentor.weekdays.includes(cb.value));
@@ -410,6 +444,7 @@ window.saveMentorInfo = async function () {
   const preferredWeekday = document.getElementById("preferred-weekday").value;
   const showOnCalendar = document.getElementById("show-on-calendar").checked;
   const includeInScheduling = document.getElementById("include-in-scheduling").checked;
+  const autoFillCalendar = document.getElementById("auto-fill-calendar").checked;
 
   const weekdays = Array.from(
     document.querySelectorAll("#weekdays-unavailable input:checked")
@@ -422,6 +457,7 @@ window.saveMentorInfo = async function () {
     hours_wanted: hoursWanted,
     show_on_calendar: showOnCalendar,
     include_in_scheduling: includeInScheduling,
+    auto_fill_calendar: autoFillCalendar,
   };
 
   try {
@@ -1273,6 +1309,7 @@ window.updateSlots = async function () {
       ...existingConfig,
       slotsAvailable: slots,
     });
+    slotsAvailable = slots;
     showToast("Slots updated successfully. Refresh the main calendar page to see changes.");
   } catch (error) {
     console.error("Error updating slots:", error);
@@ -1284,7 +1321,7 @@ window.clearCalendar = async function () {
   const label = `${MONTH_NAMES[calendarMonth]} ${calendarYear}`;
   if (
     !confirm(
-      `Are you sure you want to clear all time-off entries for ${label}? Other months are not affected.`
+      `Are you sure you want to clear all time-off entries for ${label} and prefill the unavailable weekdays of mentors with prefill enabled? Other months are not affected.`
     )
   ) {
     return;
@@ -1298,15 +1335,38 @@ window.clearCalendar = async function () {
   try {
     await createBackup(timeOffAll, "manual-clear");
 
-    timeOffAll[calendarMonthKey()] = {};
-    await setDoc(doc(db, "timeOff", CAMPUS_ID), { mentors: timeOffAll });
+    const key = calendarMonthKey();
+    const { monthData, placed, skipped } = planAutoFill({
+      mentors: mentorInfoData,
+      year: calendarYear,
+      month: calendarMonth + 1,
+      slotsAvailable,
+      monthData: {},
+    });
 
-    statusDiv.textContent = `Time-off entries for ${label} cleared.`;
+    timeOffAll[key] = monthData;
+    autoFilledAll[key] = placed;
+    await saveTimeOffDoc();
+
+    const filledDays = Object.keys(placed).length;
+    let message = `Time-off entries for ${label} cleared.`;
+    message +=
+      filledDays > 0
+        ? ` Prefilled ${filledDays} day${filledDays === 1 ? "" : "s"}.`
+        : " No mentors have prefill enabled.";
+    if (skipped.length > 0) {
+      message += ` No free slot on: ${skipped.join(", ")}.`;
+    }
+
+    statusDiv.textContent = message;
     statusDiv.className = "status-message success";
+
+    const selected = document.getElementById("mentor-select").value;
+    updateRequestedDatesDisplay(selected === "new" ? null : selected);
 
     setTimeout(() => {
       statusDiv.style.display = "none";
-    }, 3000);
+    }, 6000);
   } catch (error) {
     console.error("Error clearing calendar:", error);
     statusDiv.textContent = `Error: ${error.message}`;

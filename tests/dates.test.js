@@ -10,6 +10,7 @@ import {
   normalizeSlots,
   parseHolidayDates,
   weeksInMonth,
+  planAutoFill,
 } from "../dates.js";
 
 test("monthKey formats 1-based month with zero padding", () => {
@@ -85,4 +86,111 @@ test("parseHolidayDates rejects days outside the month", () => {
 test("weeksInMonth is days/7", () => {
   assert.equal(weeksInMonth(2026, 2), 4);
   assert.ok(Math.abs(weeksInMonth(2026, 1) - 31 / 7) < 1e-9);
+});
+
+// Wednesdays in August 2026 are the 5th, 12th, 19th and 26th
+const AUG = { year: 2026, month: 8 };
+
+test("planAutoFill places an enabled mentor on each matching weekday", () => {
+  const result = planAutoFill({
+    mentors: { Emma: { auto_fill_calendar: true, weekdays: ["Wednesday"] } },
+    ...AUG,
+    slotsAvailable: 3,
+    monthData: {},
+  });
+
+  for (const day of [5, 12, 19, 26]) {
+    assert.deepEqual(result.monthData[day], ["Emma", "", ""]);
+  }
+  assert.equal(result.monthData[6], undefined);
+  assert.deepEqual(result.placed, {
+    5: ["Emma"],
+    12: ["Emma"],
+    19: ["Emma"],
+    26: ["Emma"],
+  });
+  assert.deepEqual(result.skipped, []);
+});
+
+test("planAutoFill ignores mentors without the flag or without weekdays", () => {
+  const result = planAutoFill({
+    mentors: {
+      OptedOut: { auto_fill_calendar: false, weekdays: ["Wednesday"] },
+      NoFlag: { weekdays: ["Wednesday"] },
+      NoWeekdays: { auto_fill_calendar: true, weekdays: [] },
+    },
+    ...AUG,
+    slotsAvailable: 3,
+    monthData: {},
+  });
+
+  assert.deepEqual(result.monthData, {});
+  assert.deepEqual(result.placed, {});
+  assert.deepEqual(result.skipped, []);
+});
+
+test("planAutoFill uses the first empty slot and pads short days", () => {
+  const result = planAutoFill({
+    mentors: { Emma: { auto_fill_calendar: true, weekdays: ["Wednesday"] } },
+    ...AUG,
+    slotsAvailable: 3,
+    monthData: { 5: ["Sofia", "", ""], 12: ["Sofia"] },
+  });
+
+  assert.deepEqual(result.monthData[5], ["Sofia", "Emma", ""]);
+  assert.deepEqual(result.monthData[12], ["Sofia", "Emma", ""]);
+});
+
+test("planAutoFill skips days with no free slot and reports them", () => {
+  const result = planAutoFill({
+    mentors: { Emma: { auto_fill_calendar: true, weekdays: ["Wednesday"] } },
+    ...AUG,
+    slotsAvailable: 2,
+    monthData: { 5: ["Sofia", "Aidri"] },
+  });
+
+  assert.deepEqual(result.monthData[5], ["Sofia", "Aidri"]);
+  assert.deepEqual(result.skipped, [5]);
+  assert.equal(result.placed[5], undefined);
+  assert.deepEqual(result.placed[12], ["Emma"]);
+});
+
+test("planAutoFill never duplicates a name already on the day", () => {
+  const result = planAutoFill({
+    mentors: { Emma: { auto_fill_calendar: true, weekdays: ["Wednesday"] } },
+    ...AUG,
+    slotsAvailable: 3,
+    monthData: { 5: ["Emma", "", ""] },
+  });
+
+  assert.deepEqual(result.monthData[5], ["Emma", "", ""]);
+  assert.equal(result.placed[5], undefined);
+  assert.deepEqual(result.skipped, []);
+});
+
+test("planAutoFill fills multiple mentors in alphabetical order", () => {
+  const result = planAutoFill({
+    mentors: {
+      Zoe: { auto_fill_calendar: true, weekdays: ["Wednesday"] },
+      Aidri: { auto_fill_calendar: true, weekdays: ["Wednesday"] },
+    },
+    ...AUG,
+    slotsAvailable: 3,
+    monthData: {},
+  });
+
+  assert.deepEqual(result.monthData[5], ["Aidri", "Zoe", ""]);
+  assert.deepEqual(result.placed[5], ["Aidri", "Zoe"]);
+});
+
+test("planAutoFill does not mutate the month data it is given", () => {
+  const monthData = { 5: ["Sofia", "", ""] };
+  planAutoFill({
+    mentors: { Emma: { auto_fill_calendar: true, weekdays: ["Wednesday"] } },
+    ...AUG,
+    slotsAvailable: 3,
+    monthData,
+  });
+
+  assert.deepEqual(monthData, { 5: ["Sofia", "", ""] });
 });

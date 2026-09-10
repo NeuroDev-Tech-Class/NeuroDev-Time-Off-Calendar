@@ -141,6 +141,14 @@
             </label>
           </div>
 
+          <div class="form-group">
+            <label>
+              <input type="checkbox" id="auto-fill-calendar" />
+              Prefill this mentor's unavailable weekdays onto the employee
+              calendar (applied by "Clear &amp; Auto-Fill")
+            </label>
+          </div>
+
           <div class="form-actions">
             <button onclick="saveMentorInfo()" class="btn-primary">
               Save Mentor
@@ -286,13 +294,14 @@
         </div>
 
         <div class="form-group" style="margin-top: 2rem">
-          <h3>Clear Calendar Data</h3>
+          <h3>Clear Calendar &amp; Auto-Fill</h3>
           <p>
             This will clear all time-off entries for the currently configured
-            calendar month. Other months are not affected.
+            calendar month, then prefill the unavailable weekdays of every
+            mentor who has prefill enabled. Other months are not affected.
           </p>
           <button onclick="clearCalendar()" class="btn-danger">
-            Clear Current Month
+            Clear Current Month &amp; Auto-Fill
           </button>
         </div>
 

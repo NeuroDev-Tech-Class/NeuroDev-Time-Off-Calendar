@@ -62,6 +62,44 @@ export function normalizeSlots(slots, slotsAvailable) {
   return result;
 }
 
+export function planAutoFill({ mentors, year, month, slotsAvailable, monthData }) {
+  const result = {};
+  for (const [day, slots] of Object.entries(monthData || {})) {
+    result[day] = Array.from(slots || [], (v) => v || "");
+  }
+
+  const placed = {};
+  const skipped = new Set();
+
+  const enabled = Object.keys(mentors || {})
+    .filter((name) => mentors[name].auto_fill_calendar === true)
+    .sort((a, b) => a.localeCompare(b));
+
+  for (const name of enabled) {
+    for (const day of expandWeekdaysToDates(year, month, mentors[name].weekdays)) {
+      const slots = normalizeSlots(result[day], slotsAvailable);
+      result[day] = slots;
+
+      if (slots.includes(name)) continue;
+
+      const free = slots.indexOf("");
+      if (free === -1) {
+        skipped.add(day);
+        continue;
+      }
+
+      slots[free] = name;
+      placed[day] = [...(placed[day] || []), name];
+    }
+  }
+
+  return {
+    monthData: result,
+    placed,
+    skipped: Array.from(skipped).sort((a, b) => a - b),
+  };
+}
+
 export function parseHolidayDates(holidayStr, daysInMonth) {
   if (!holidayStr.trim()) return [];
 

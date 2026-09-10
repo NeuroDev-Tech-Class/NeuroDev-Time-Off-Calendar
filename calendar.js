@@ -17,9 +17,18 @@ let targetMonth = 0; // 0 = Jan
 let targetYear = 2026;
 let timeOffAll = {}; // Month-keyed: { "2026-01": { "5": ["Sofia", "", ""] } }
 let timeOffData = {}; // Slice for the target month
+let autoFilledAll = {}; // Admin's prefill record - carried through, never edited here
 
 function currentMonthKey() {
   return monthKey(targetYear, targetMonth + 1);
+}
+
+// Both fields go in every write: setDoc replaces the whole document
+async function saveTimeOffDoc() {
+  await setDoc(doc(db, "timeOff", CAMPUS_ID), {
+    mentors: timeOffAll,
+    autoFilled: autoFilledAll,
+  });
 }
 
 async function loadMentorList() {
@@ -43,10 +52,11 @@ async function loadTimeOffData() {
     const docSnap = await getDoc(doc(db, "timeOff", CAMPUS_ID));
     if (docSnap.exists()) {
       timeOffAll = docSnap.data()?.mentors || {};
+      autoFilledAll = docSnap.data()?.autoFilled || {};
       // One-time migration: legacy docs were keyed by bare day-of-month
       if (!isMonthKeyed(timeOffAll)) {
         timeOffAll = migrateFlatTimeOff(timeOffAll, currentMonthKey());
-        await setDoc(doc(db, "timeOff", CAMPUS_ID), { mentors: timeOffAll });
+        await saveTimeOffDoc();
       }
       timeOffData = getMonthSlice(timeOffAll, currentMonthKey());
     }
@@ -109,12 +119,16 @@ export async function createCalendar() {
 
     for (let i = 0; i < slotsAvailable; i++) {
       const select = document.createElement("select");
+      const stored = (timeOffData[day] && timeOffData[day][i]) || "";
+      // A stored name may be hidden from the calendar, renamed or deleted;
+      // without an option for it the value silently resets to empty
+      const names = stored && !mentors.includes(stored) ? [...mentors, stored] : mentors;
       select.innerHTML =
         '<option value="">-</option>' +
-        mentors.map((emp) => `<option value="${emp}">${emp}</option>`).join("");
+        names.map((emp) => `<option value="${emp}">${emp}</option>`).join("");
       select.onchange = () => saveTimeOff(day, i, select);
-      if (timeOffData[day] && timeOffData[day][i]) {
-        select.value = timeOffData[day][i];
+      if (stored) {
+        select.value = stored;
       }
       dayDiv.appendChild(select);
     }
@@ -144,7 +158,7 @@ async function saveTimeOff(day, index, select) {
     timeOffData[day][index] = name;
     timeOffAll[currentMonthKey()] = timeOffData;
 
-    await setDoc(doc(db, "timeOff", CAMPUS_ID), { mentors: timeOffAll });
+    await saveTimeOffDoc();
 
     showToast("Saved!");
     updateDayStyles();
@@ -158,6 +172,7 @@ async function saveTimeOff(day, index, select) {
 onSnapshot(doc(db, "timeOff", CAMPUS_ID), (docSnap) => {
   if (docSnap.exists()) {
     timeOffAll = migrateFlatTimeOff(docSnap.data()?.mentors || {}, currentMonthKey());
+    autoFilledAll = docSnap.data()?.autoFilled || {};
     timeOffData = getMonthSlice(timeOffAll, currentMonthKey());
     createCalendar();
   }

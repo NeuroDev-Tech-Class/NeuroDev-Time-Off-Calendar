@@ -18,10 +18,11 @@ manages mentor profiles and generates monthly shift schedules from that data.
 - Password protected (password set in `auth.js`)
 - **Mentor Management**: name, hours wanted per week, recurring weekdays
   unavailable, preferred weekday, whether they appear on the employee calendar,
-  and whether they are included when generating schedules (two independent
-  settings).
+  whether they are included when generating schedules (two independent
+  settings), and whether their recurring weekdays are prefilled onto the
+  employee calendar.
   Requested days off are shown read-only, pulled from the calendar for the
-  currently configured month.
+  currently configured month; prefilled ones are marked as such.
 - **Generate Schedule**: pick year/month, adjust holidays (defaults computed
   per year), optionally list "no scheduling" days (facility closed - no shifts
   at all; accepts lists and ranges like `4,15,20-22`), generate. Requested
@@ -33,7 +34,11 @@ manages mentor profiles and generates monthly shift schedules from that data.
   in memory until you click "Save Schedule"; leaving the page with unsaved
   edits prompts a warning.
 - **Calendar Management**: set the month/year the employee calendar shows,
-  number of slots per day, and clear the current month's entries.
+  number of slots per day, and "Clear Current Month & Auto-Fill", which wipes
+  the month's entries and then prefills the recurring days off of every mentor
+  with prefill enabled. A day whose slots are already full is skipped and
+  reported. Prefilling is a visibility aid for employees - the scheduler blocks
+  recurring weekdays whether or not the calendar is prefilled.
 
 ## Scheduling rules
 
@@ -60,9 +65,16 @@ array entry per slot:
       "5": ["Sofia", "", ""],
       "12": ["Aidri", "Emma", ""]
     }
+  },
+  autoFilled: {
+    "2026-01": { "12": ["Emma"] }   // placed by Clear & Auto-Fill, not requested
   }
 }
 ```
+
+`autoFilled` records which names the prefill put on the calendar, so the admin
+portal can tell them apart from real employee requests. Both pages write the
+whole document, so every write carries both fields.
 
 Legacy documents keyed by bare day-of-month are migrated automatically the
 first time either page loads them.
@@ -78,7 +90,8 @@ first time either page loads them.
       preferred_weekdays: ["Sunday"],
       hard_dates: [1, 2, 3],         // requested days off (from the calendar)
       show_on_calendar: true,        // appears in employee-calendar dropdowns
-      include_in_scheduling: true    // eligible for generated schedules
+      include_in_scheduling: true,   // eligible for generated schedules
+      auto_fill_calendar: false      // prefill `weekdays` onto the calendar
     }
   }
 }

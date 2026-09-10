@@ -38,8 +38,14 @@ rate so everyone approaches their target together.
 - **Preferred Weekday**: the weekday the mentor wants every week
 - **Requested Days Off**: specific dates picked on the employee calendar for
   a specific month
-- **Show on calendar**: unchecked mentors do not appear on the employee
-  calendar and are excluded from schedule generation entirely
+- **Show on calendar**: unchecked mentors do not appear in the employee
+  calendar dropdowns. This affects display only
+- **Include in scheduling**: unchecked mentors are skipped by schedule
+  generation. Independent of "Show on calendar"
+- **Prefill unavailable weekdays**: when checked, "Clear Current Month &
+  Auto-Fill" writes this mentor's recurring days off onto the employee
+  calendar so employees can see the day is taken. Purely a visibility aid -
+  the scheduler enforces those weekdays either way
 
 ## Pay Periods
 
